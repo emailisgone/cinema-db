@@ -3,30 +3,30 @@
 CREATE TABLE movies(
     movieID SERIAL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
-    duration INTEGER CHECK (duration > 0),
-    release_date DATE DEFAULT CURRENT_DATE);
+    duration INTEGER CHECK (duration>0),
+    release_date DATE CHECK(release_date <= CURRENT_DATE) DEFAULT CURRENT_DATE);
 
 -- Rooms
 CREATE TABLE rooms(
     roomID SERIAL PRIMARY KEY,
-    room_name VARCHAR(255) NOT NULL,
-    seat_capacity INTEGER CHECK (seat_capacity > 0));
+    room_name VARCHAR(255) NOT NULL CHECK(room_name NOT LIKE '%test%'),
+    seat_capacity INTEGER CHECK(seat_capacity>0));
 
 -- Sessions
 CREATE TABLE sessions(
     sessionID SERIAL PRIMARY KEY,
-    movieID INTEGER REFERENCES movies(movieID),
-    roomID INTEGER REFERENCES rooms(roomID),
+    movieID INTEGER REFERENCES movies(movieID) ON DELETE CASCADE,
+    roomID INTEGER REFERENCES rooms(roomID) ON DELETE CASCADE,
     start_date TIMESTAMP,
     end_date TIMESTAMP,
-    duration INTEGER CHECK (duration > 0));
+    duration INTEGER CHECK(duration>0));
 
 -- Tickets
 CREATE TABLE tickets(
     ticketID SERIAL PRIMARY KEY,
-    sessionID INTEGER REFERENCES sessions(sessionID),
+    sessionID INTEGER REFERENCES sessions(sessionID) ON DELETE CASCADE,
     seat_nr INTEGER,
-    price DECIMAL CHECK (price >= 0),
+    price DECIMAL CHECK(price BETWEEN 0.01 AND 1000.0),
     purchase_date DATE DEFAULT CURRENT_DATE);
 
 -- Genres
@@ -41,8 +41,8 @@ CREATE TABLE directors(
 
 -- MovieGenres
 CREATE TABLE moviegenres(
-    movieID INTEGER REFERENCES movies(movieID),
-    genreID INTEGER REFERENCES genres(genreID));
+    movieID INTEGER REFERENCES movies(movieID) ON DELETE CASCADE,
+    genreID INTEGER REFERENCES genres(genreID) ON DELETE CASCADE);
 
 -- MovieDirectors
 CREATE TABLE moviedirectors(
@@ -53,6 +53,9 @@ CREATE TABLE moviedirectors(
 -- All the serial prim keys - unique
 -- Non-unique on dif one movie sessions:
 CREATE INDEX sessmovid_index ON sessions(movieID);
+
+-- Unique seat for each session!!!
+CREATE UNIQUE INDEX unq_seat_index ON tickets(sessionID, seat_nr);
 
 -- ********************************* VIEWS ****************************************
 CREATE MATERIALIZED VIEW ticket_sales AS
@@ -88,7 +91,7 @@ BEGIN
     NEW.duration := movie_duration;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$LANGUAGE plpgsql;
 
 CREATE TRIGGER session_duration_trigger
 BEFORE INSERT OR UPDATE OF movieID ON sessions
@@ -99,13 +102,13 @@ CREATE OR REPLACE FUNCTION prevent_movie_deletion() RETURNS TRIGGER AS $$
 DECLARE
     future_sessions_count INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO future_sessions_count FROM sessions WHERE movieID = OLD.movieID AND start_date > CURRENT_DATE;
-    IF future_sessions_count > 0 THEN
-        RAISE EXCEPTION 'Can''t delete movie with ID % because it has sessions!', OLD.movieID;
+    SELECT COUNT(*) INTO future_sessions_count FROM sessions WHERE movieID = OLD.movieID AND start_date>CURRENT_DATE;
+    IF future_sessions_count>0 THEN
+        RAISE EXCEPTION 'Movie % has sessions, what u doin''?', OLD.movieID;
     END IF;
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql;
+$$LANGUAGE plpgsql;
 
 CREATE TRIGGER prevent_movie_deletion_trigger
 BEFORE DELETE ON movies
@@ -303,3 +306,24 @@ DELETE FROM sessions WHERE sessionID = 10;
 
 -- mov deletion trigger check
 DELETE FROM movies WHERE movieID = 1;
+-- ********************************* DROP EVERYTHING *********************************
+DROP VIEW moviegenres_linked;
+DROP VIEW moviedirectors_linked;
+DROP MATERIALIZED VIEW ticket_sales;
+
+DROP TRIGGER session_duration_trigger;
+DROP TRIGGER prevent_movie_deletion_trigger;
+DROP FUNCTION update_session_duration;
+DROP FUNCTION prevent_movie_deletion;
+
+DROP TABLE moviedirectors;
+DROP TABLE moviegenres;
+DROP TABLE directors;
+DROP TABLE genres;
+DROP TABLE tickets;
+DROP TABLE sessions;
+DROP TABLE rooms;
+DROP TABLE movies;
+
+DROP INDEX sessmovid_index;
+DROP INDEX unq_seat_index;
